@@ -1,6 +1,7 @@
 import asyncio
 import random
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 import pandas as pd
@@ -18,6 +19,7 @@ dp = Dispatcher()
 
 wins = 0
 losses = 0
+active_users = set()  # 🔥 анти-спам
 
 # 💎 КНОПКИ
 kb = ReplyKeyboardMarkup(
@@ -82,7 +84,7 @@ def calculate_rsi(df, period=14):
     rs = gain / loss
     return (100 - (100 / (1 + rs))).iloc[-1]
 
-# 🧠 АНАЛІЗ (ЗАВЖДИ Є СИГНАЛ)
+# 🧠 АНАЛІЗ
 def analyze_market():
     signals = []
 
@@ -124,7 +126,7 @@ def analyze_market():
         except:
             continue
 
-    # fallback
+    # fallback (завжди сигнал)
     if not signals:
         pair_name = random.choice(list(PAIRS.keys()))
         symbol = PAIRS[pair_name]
@@ -151,9 +153,9 @@ async def start(message: Message):
         return
 
     await message.answer("""
-💎 <b>СИГНАЛИ АКТИВОВАНО</b>
+💎 <b>ДОСТУП ВІДКРИТО</b>
 
-Натисни кнопку нижче 👇
+⬇️ Обирай нижче та отримай прибуткові сигнали
 """, reply_markup=kb, parse_mode="HTML")
 
 # 📊 СИГНАЛ
@@ -161,25 +163,37 @@ async def start(message: Message):
 async def signal(message: Message):
     global wins, losses
 
-    if not await check_sub(message.from_user.id):
-        await message.answer(f"📩 Менеджер: {MANAGER}")
+    user_id = message.from_user.id
+
+    # 🔒 анти-спам
+    if user_id in active_users:
+        await message.answer("⏳ Зачекай, попередній сигнал ще обробляється...")
         return
 
-    msg = await message.answer("🔍 Аналіз ринку...")
-    await asyncio.sleep(1.5)
-    await msg.edit_text("📊 Обробка даних...")
-    await asyncio.sleep(1.5)
-    await msg.edit_text("📈 Формування сигналу...")
+    active_users.add(user_id)
 
-    pair, symbol, direction = analyze_market()
+    try:
+        if not await check_sub(user_id):
+            await message.answer(f"📩 Менеджер: {MANAGER}")
+            return
 
-    exp = random.choice([1, 2])
+        msg = await message.answer("🔍 Аналіз ринку...")
+        await asyncio.sleep(1.5)
+        await msg.edit_text("📊 Обробка даних...")
+        await asyncio.sleep(1.5)
+        await msg.edit_text("📈 Формування сигналу...")
 
-    now = datetime.now()
-    entry_time = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
-    end_time = entry_time + timedelta(minutes=exp)
+        pair, symbol, direction = analyze_market()
 
-    await message.answer(f"""
+        exp = random.choice([1, 2])
+
+        # 🇺🇦 Київський час
+        now = datetime.now(ZoneInfo("Europe/Kyiv"))
+
+        entry_time = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
+        end_time = entry_time + timedelta(minutes=exp)
+
+        await message.answer(f"""
 🚀 <b>НОВИЙ СИГНАЛ</b>
 
 💱 Актив: <b>{pair}</b>
@@ -191,29 +205,31 @@ async def signal(message: Message):
 🔥 Готовий до входу
 """, parse_mode="HTML")
 
-    start_price = get_price(symbol)
+        start_price = get_price(symbol)
 
-    await message.answer("🚀 Вхід у позицію...")
-    await message.answer("⏳ Очікуємо результат...")
+        await message.answer("🚀 Вхід у позицію...")
+        await message.answer("⏳ Очікуємо результат...")
 
-    await asyncio.sleep(exp * 60)
+        await asyncio.sleep(exp * 60)
 
-    end_price = get_price(symbol)
+        end_price = get_price(symbol)
 
-    # 📊 РЕЗУЛЬТАТ
-    if direction == "ВГОРУ ⬆️":
-        win = end_price > start_price
-    else:
-        win = end_price < start_price
+        if direction == "ВГОРУ ⬆️":
+            win = end_price > start_price
+        else:
+            win = end_price < start_price
 
-    if win:
-        wins += 1
-        result_text = "✅ <b>ЗАЙШЛО</b>"
-    else:
-        losses += 1
-        result_text = "❌ <b>LOSE</b>"
+        if win:
+            wins += 1
+            result_text = "✅ <b>ЗАЙШЛО</b>"
+        else:
+            losses += 1
+            result_text = "❌ <b>LOSE</b>"
 
-    await message.answer(f"📊 Результат: {result_text}", parse_mode="HTML")
+        await message.answer(f"📊 Результат: {result_text}", parse_mode="HTML")
+
+    finally:
+        active_users.discard(user_id)
 
 # 📈 СТАТИСТИКА
 @dp.message(F.text == "📈 Статистика")
@@ -241,9 +257,10 @@ async def manager(message: Message):
 
 # ▶️ ЗАПУСК
 async def main():
-    print("🚀 Тисни і отримай ПРИБУТКОВІ СИГНАЛИ")
+    print("🚀 BOT STARTED")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
